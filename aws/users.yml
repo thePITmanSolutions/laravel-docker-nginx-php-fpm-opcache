@@ -1,0 +1,51 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "Create user accounts"
+
+Parameters:
+  CompanyName:
+    Type: String
+    Default: "My full company name"
+  Company:
+    Type: String
+    Default: "comp"
+  Project:
+    Type: String
+    Default: "laravel-template"
+  Environment:
+    Type: String
+    Default: "p"
+
+Resources:
+
+  # username - Power User
+  PowerUserUSERNAME:
+    Type: AWS::IAM::User
+    Properties:
+      ManagedPolicyArns:
+      - "arn:aws:iam::aws:policy/PowerUserAccess"
+      - "arn:aws:iam::aws:policy/IAMFullAccess"
+      UserName: "username"
+      LoginProfile:
+        Password: "Password1234!"
+        PasswordResetRequired: "true"
+
+  PowerUserUSERNAMEKey:
+    Type: AWS::IAM::AccessKey
+    Properties:
+      UserName: !Ref PowerUserUSERNAME
+
+  PowerUserUSERNAMEKeySecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Description: "API key and secret key for the Power User"
+      Name: !Sub
+        - ${Environment}-${Company}-${UserName}-api-key
+        - UserName: !Ref PowerUserUSERNAME
+      SecretString: !Sub '{"access_key":"${PowerUserUSERNAMEKey}", "secret_key":"${PowerUserUSERNAMEKey.SecretAccessKey}"}'
+
+Outputs:
+  PowerUserUSERNAME:
+    Description: Primary power user
+    Value: !Ref PowerUserUSERNAME
+    Export:
+      Name: !Sub ${Environment}-${Company}-primary-power-user-username

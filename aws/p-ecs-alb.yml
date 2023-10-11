@@ -1,0 +1,366 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "Create Load Balancer and ECS resources for website"
+
+Parameters:
+  CompanyName:
+    Type: String
+    Default: "My full company name"
+  Company:
+    Type: String
+    Default: "comp"
+  Project:
+    Type: String
+    Default: "laravel-template"
+  Environment:
+    Type: String
+    Default: "p"
+
+Resources:
+
+  WebsiteEcsServiceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: "Security group for ECS service"
+      GroupName: !Sub ${Environment}-${Company}-${Project}-ecs-service-security-group
+      VpcId:
+          Fn::ImportValue:
+            !Sub ${Company}-common-vpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 8080
+          ToPort: 8080
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 8080
+          ToPort: 8080
+          CidrIpv6: ::/0
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIpv6: ::/0
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIpv6: ::/0
+      SecurityGroupEgress:
+        - IpProtocol: "-1"
+          CidrIp: 0.0.0.0/0
+      Tags:
+      - Key: Company
+        Value: !Sub "${Company}"
+      - Key: Project
+        Value: !Sub "${Project}"
+      - Key: Environment
+        Value: !Sub "${Environment}"
+      - Key: StackName
+        Value: !Ref AWS::StackName
+
+  ######## Load Balancer resoures ########
+
+  WebsiteLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    DependsOn:
+      - WebsiteEcsServiceSecurityGroup
+    Properties:
+      Name: !Sub ${Environment}-${Company}-${Project}
+      Type: application
+      Scheme: internet-facing
+      IpAddressType: ipv4
+      Subnets:
+        - Fn::ImportValue:
+            !Sub "${Company}-common-subnet-a"
+        - Fn::ImportValue:
+            !Sub "${Company}-common-subnet-b"
+        - Fn::ImportValue:
+            !Sub "${Company}-common-subnet-c"
+      SecurityGroups:
+        - !Ref WebsiteEcsServiceSecurityGroup
+      Tags:
+        - Key: Company
+          Value: !Sub "${Company}"
+        - Key: Project
+          Value: !Sub "${Project}"
+        - Key: Environment
+          Value: !Sub "${Environment}"
+        - Key: StackName
+          Value: !Ref AWS::StackName
+
+  WebsiteHttpTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub ${Environment}-${Company}-${Project}-http
+      TargetType: ip
+      Protocol: HTTP
+      Port: 80
+      IpAddressType: ipv4
+      VpcId:
+          Fn::ImportValue:
+            !Sub ${Company}-common-vpc
+      ProtocolVersion: HTTP1
+      HealthCheckEnabled: true
+      HealthCheckPath: /
+      HealthCheckProtocol: HTTP
+      HealthCheckPort: traffic-port
+      HealthCheckIntervalSeconds: 30
+      HealthyThresholdCount: 5
+      UnhealthyThresholdCount: 2
+      HealthCheckTimeoutSeconds: 5
+      Tags:
+        - Key: Company
+          Value: !Sub "${Company}"
+        - Key: Project
+          Value: !Sub "${Project}"
+        - Key: Environment
+          Value: !Sub "${Environment}"
+        - Key: StackName
+          Value: !Ref AWS::StackName
+
+  WebsiteListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    DependsOn:
+      - WebsiteLoadBalancer
+      - WebsiteHttpTargetGroup
+    Properties:
+      DefaultActions:
+        ## Use this Action only when HTTPS is enabled
+        - Order: 1
+          Type: redirect
+          RedirectConfig:
+            Protocol: HTTPS
+            Port: 443
+            Host: "#{host}"
+            Path: "/#{path}"
+            Query: "#{query}"
+            StatusCode: HTTP_301
+        ## Use this Action only when HTTPS is not yet enabled
+        # - Order: 1
+        #   Type: forward
+        #   TargetGroupArn: !Ref WebsiteHttpTargetGroup
+      LoadBalancerArn: !Ref WebsiteLoadBalancer
+      Port: 80
+      Protocol: HTTP
+
+  ######## ECS resources ########
+
+  WebsiteTaskDefinitionExecutionRole:
+    Type: AWS::IAM::Role
+    Properties: 
+      RoleName: !Sub ${Environment}-${Company}-${Project}-task-execution-role
+      Description: "Execution role for Task Definition"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: ecs-tasks.amazonaws.com
+          Action: sts:AssumeRole
+      Path: /
+      Policies:
+        # Same permissions as AmazonECSTaskExecutionRolePolicy
+        - PolicyName: !Sub ${Environment}-${Company}-${Project}-execution-role-policy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+            - Effect: Allow
+              Action:
+              - ecr:GetAuthorizationToken
+              - ecr:BatchCheckLayerAvailability
+              - ecr:GetDownloadUrlForLayer
+              - ecr:BatchGetImage
+              - logs:CreateLogStream
+              - logs:PutLogEvents
+              Resource: "*"
+        - PolicyName: !Sub ${Environment}-${Company}-${Project}-private-registry-authentication
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+            - Effect: Allow
+              Action:
+              - kms:Decrypt
+              - secretsmanager:GetSecretValue
+              Resource:
+              - !Sub arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:*
+              - !Sub arn:aws:kms:${AWS::Region}:${AWS::AccountId}:key/*
+      Tags:
+        - Key: Company
+          Value: !Sub "${Company}"
+        - Key: Project
+          Value: !Sub "${Project}"
+        - Key: Environment
+          Value: !Sub "${Environment}"
+        - Key: StackName
+          Value: !Ref AWS::StackName
+
+  WebsiteEcsCluster:
+    Type: AWS::ECS::Cluster
+    Properties: 
+      ClusterName: !Sub ${Environment}-${Company}-${Project}
+      CapacityProviders: 
+        - FARGATE_SPOT
+      DefaultCapacityProviderStrategy:
+        - CapacityProvider: FARGATE_SPOT
+          Weight: 1
+      ServiceConnectDefaults: 
+        Namespace: !Sub ${Environment}-${Company}-${Project}
+      Tags:
+        - Key: Company
+          Value: !Sub "${Company}"
+        - Key: Project
+          Value: !Sub "${Project}"
+        - Key: Environment
+          Value: !Sub "${Environment}"
+        - Key: StackName
+          Value: !Ref AWS::StackName
+
+  WebsiteTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    DependsOn:
+      - WebsiteTaskDefinitionExecutionRole
+    Properties:
+      Family: !Sub ${Environment}-${Company}-${Project}
+      RequiresCompatibilities:
+        - FARGATE
+      NetworkMode: awsvpc
+      Cpu: 256
+      Memory: 512
+      RuntimePlatform:
+        OperatingSystemFamily: LINUX
+        CpuArchitecture: X86_64
+      ExecutionRoleArn: !GetAtt WebsiteTaskDefinitionExecutionRole.Arn
+      TaskRoleArn: !GetAtt WebsiteTaskDefinitionExecutionRole.Arn
+      PidMode: task
+      ContainerDefinitions:
+        - Name: !Sub ${Environment}-${Company}-${Project}
+          Essential: true
+          Image: !Sub
+            - "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ImageName}:latest"
+            - ImageName:
+                Fn::ImportValue:
+                  !Sub ${Environment}-${Company}-${Project}-ecr-image-name
+          Secrets:
+            - Name: DB_USERNAME
+              ValueFrom: !Sub
+                - "${ProdDbRootUserSecret}:username::"
+                - ProdDbRootUserSecret:
+                    Fn::ImportValue:
+                      !Sub ${Environment}-${Company}-db-root-secret
+            - Name: DB_PASSWORD
+              ValueFrom: !Sub
+                - "${ProdDbRootUserSecret}:password::"
+                - ProdDbRootUserSecret:
+                    Fn::ImportValue:
+                      !Sub ${Environment}-${Company}-db-root-secret
+          PortMappings:
+            - Name: !Sub ${Environment}-${Company}-${Project}-80-tcp
+              Protocol: tcp
+              AppProtocol: http
+              HostPort: 8080
+              ContainerPort: 8080
+          Privileged: false
+          ReadonlyRootFilesystem: false
+      Tags:
+        - Key: Company
+          Value: !Sub "${Company}"
+        - Key: Project
+          Value: !Sub "${Project}"
+        - Key: Environment
+          Value: !Sub "${Environment}"
+        - Key: StackName
+          Value: !Ref AWS::StackName
+
+  WebsiteService:
+    Type: AWS::ECS::Service
+    DependsOn:
+      - WebsiteListener
+      - WebsiteEcsServiceSecurityGroup
+      - WebsiteTaskDefinition
+      - WebsiteEcsCluster
+    Properties:
+      ServiceName: !Sub ${Environment}-${Company}-${Project}
+      Cluster: !Ref WebsiteEcsCluster
+      TaskDefinition: !Ref WebsiteTaskDefinition
+      CapacityProviderStrategy:
+        - CapacityProvider: FARGATE_SPOT
+          Weight: 1
+          Base: 0
+      PlatformVersion: LATEST
+      DesiredCount: 1
+      DeploymentConfiguration:
+        MaximumPercent: 200
+        MinimumHealthyPercent: 100
+      NetworkConfiguration:
+        AwsvpcConfiguration: 
+          AssignPublicIp: ENABLED
+          SecurityGroups: 
+            - !Ref WebsiteEcsServiceSecurityGroup
+          Subnets: 
+            -
+                Fn::ImportValue:
+                  !Sub ${Company}-common-subnet-a
+            -
+                Fn::ImportValue:
+                  !Sub ${Company}-common-subnet-b
+            -
+                Fn::ImportValue:
+                  !Sub ${Company}-common-subnet-c
+      EnableECSManagedTags: true
+      EnableExecuteCommand: true
+      LoadBalancers:
+        - ContainerName: !Sub ${Environment}-${Company}-${Project}
+          ContainerPort: 8080
+          TargetGroupArn: !Ref WebsiteHttpTargetGroup
+      SchedulingStrategy: REPLICA
+      Tags:
+        - Key: Company
+          Value: !Sub "${Company}"
+        - Key: Project
+          Value: !Sub "${Project}"
+        - Key: Environment
+          Value: !Sub "${Environment}"
+        - Key: StackName
+          Value: !Ref AWS::StackName
+
+Outputs:
+  WebsiteLoadBalancer:
+    Description: load balancer
+    Value: !Ref WebsiteLoadBalancer
+    Export:
+      Name: !Sub ${Environment}-${Company}-${Project}-load-balancer
+  WebsiteLoadBalancerDns:
+    Description: load balancer DNS
+    Value: !GetAtt WebsiteLoadBalancer.DNSName
+    Export:
+      Name: !Sub ${Environment}-${Company}-${Project}-load-balancer-dns
+  WebsiteHttpTargetGroup:
+    Description: http target group
+    Value: !Ref WebsiteHttpTargetGroup
+    Export:
+      Name: !Sub ${Environment}-${Company}-${Project}-http-target-group
+  WebsiteLoadBalancerHostedZone:
+    Description: load balancer Hosted Zone ID
+    Value: !GetAtt WebsiteLoadBalancer.CanonicalHostedZoneID
+    Export:
+      Name: !Sub ${Environment}-${Company}-${Project}-load-balancer-hosted-zone
+  WebsiteEcsCluster:
+    Description: ECS Cluster name
+    Value: !Ref WebsiteEcsCluster
+    Export:
+      Name: !Sub ${Environment}-${Company}-${Project}-ecs-cluster-name
+  WebsiteEcsServiceArn:
+    Description: ECS Service ARN
+    Value: !Ref WebsiteService
+    Export:
+      Name: !Sub ${Environment}-${Company}-${Project}-ecs-service-arn
+  WebsiteEcsServiceName:
+    Description: ECS Service name
+    Value: !GetAtt WebsiteService.Name
+    Export:
+      Name: !Sub ${Environment}-${Company}-${Project}-ecs-service-name

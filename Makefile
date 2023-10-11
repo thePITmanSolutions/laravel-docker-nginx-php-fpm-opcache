@@ -11,14 +11,26 @@ help: ## Print help.
 ps: ## Show containers.
 	@docker compose ps
 
-build: ## Build all containers for DEV
-	@docker build --no-cache . -f ./Dockerfile.local
+auth: ## Authenticate with AWS
+	aws ecr get-login-password --region us-east-2 | docker login --username AWS --password-stdin 380770931055.dkr.ecr.us-east-2.amazonaws.com
 
-build-prod: ## Build all containers for PROD
+build: ## Build all containers for PROD
 	@docker build --no-cache . -f ./Dockerfile
-
 start: ## Start all containers
+	@docker compose -f docker-compose.local.yml up --force-recreate -d
+stop: ## Stop all containers
+	@docker compose -f docker-compose.local.yml stop
+restart: stop start ## Restart all containers
+destroy: stop ## Destroy all containers
+
+build-prod: ## Build all containers for DEV
+	@docker build --no-cache .
+start-prod: ## Start all containers
 	@docker compose up --force-recreate -d
+stop-prod: ## Stop all containers
+	@docker compose stop
+restart-prod: stop-prod start-prod ## Restart all containers
+destroy-prod: stop-prod ## Destroy all containers
 
 fresh:  ## Destroy & recreate all uing dev containers.
 	make stop
@@ -27,17 +39,10 @@ fresh:  ## Destroy & recreate all uing dev containers.
 	make start
 
 fresh-prod: ## Destroy & recreate all using prod containers.
-	make stop
-	make destroy
+	make stop-prod
+	make destroy-prod
 	make build-prod
-	make start
-
-stop: ## Stop all containers
-	@docker compose stop
-
-restart: stop start ## Restart all containers
-
-destroy: stop ## Destroy all containers
+	make start-prod
 
 ssh: ## SSH into PHP container
 	docker exec -it ${CONTAINER_PHP} sh
@@ -56,3 +61,9 @@ tests: ## Run all tests
 
 tests-html: ## Run tests and generate coverage. Report found in reports/index.html
 	docker exec ${CONTAINER_PHP} php -d zend_extension=xdebug.so -d xdebug.mode=coverage ./vendor/bin/phpunit --coverage-html reports
+
+lint: ## Run phpcs
+	./vendor/bin/phpcs --standard=ruleset.xml app/
+
+lint-fix: ## Run phpcbf
+	./vendor/bin/phpcbf --standard=ruleset.xml app/

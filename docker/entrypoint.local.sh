@@ -11,6 +11,13 @@ else
     echo "env file exists."
 fi
 
+if [ ! -e ./public/storage ]; then
+    echo "Creating storage symbolic link"
+    php artisan storage:link
+else
+    echo "Storage symbolic link exists"
+fi
+
 php artisan migrate
 php artisan optimize clear
 php artisan view:clear

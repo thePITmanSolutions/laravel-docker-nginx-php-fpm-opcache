@@ -1,0 +1,32 @@
+version: "3.8"
+services:
+    app:
+        container_name: app
+        build:
+            context: .
+            target: php
+            args:
+                - APP_ENV=${APP_ENV}
+        environment:
+            - APP_ENV=${APP_ENV}
+        working_dir: /app
+        volumes:
+            - ./:/app
+        ports:
+            - 8080:8080
+        depends_on:
+            - database
+    database:
+        container_name: database
+        image: mysql:8.0
+        ports:
+            -   3306:3306
+        environment:
+            - MYSQL_DATABASE=${DB_DATABASE}
+            - MYSQL_USER=${DB_USERNAME}
+            - MYSQL_PASSWORD=${DB_PASSWORD}
+            - MYSQL_ROOT_PASSWORD=${DB_PASSWORD}
+        volumes:
+            - db-data:/var/lib/mysql
+volumes:
+    db-data: ~

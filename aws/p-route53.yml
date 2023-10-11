@@ -1,0 +1,112 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "Create Route 53 resources for website"
+
+Parameters:
+  CompanyName:
+    Type: String
+    Default: "My full company name"
+  Company:
+    Type: String
+    Default: "comp"
+  Project:
+    Type: String
+    Default: "laravel-template"
+  Environment:
+    Type: String
+    Default: "p"
+  DomainName:
+    Type: String
+    Default: "mydomainname.com"
+
+Resources:
+
+  WebsiteHostedZone:
+    Type: AWS::Route53::HostedZone
+    Properties: 
+      Name: !Ref DomainName
+      HostedZoneTags: 
+        - Key: Company
+          Value: !Sub "${Company}"
+        - Key: Project
+          Value: !Sub "${Project}"
+        - Key: Environment
+          Value: !Sub "${Environment}"
+        - Key: StackName
+          Value: !Ref AWS::StackName
+
+  WebsiteHostedZoneRecordAlb:
+    Type: AWS::Route53::RecordSet
+    DependsOn:
+      - WebsiteHostedZone
+    Properties: 
+      Name: !Sub ${DomainName}.
+      Comment: !Sub "Hosted Zone A record for ${DomainName} load balancer"
+      HostedZoneId: !Ref WebsiteHostedZone
+      Type: A
+      AliasTarget:
+        DNSName:
+            Fn::ImportValue:
+              !Sub ${Environment}-${Company}-${Project}-load-balancer-dns
+        HostedZoneId:
+            Fn::ImportValue:
+              !Sub ${Environment}-${Company}-${Project}-load-balancer-hosted-zone
+        EvaluateTargetHealth: true
+
+  WebsiteHostedZoneRecordWww:
+    Type: AWS::Route53::RecordSet
+    DependsOn:
+      - WebsiteHostedZoneRecordAlb
+    Properties:
+      Name: !Sub www.${DomainName}
+      Comment: !Sub "Hosted Zone A record for www.${DomainName}"
+      HostedZoneId: !Ref WebsiteHostedZone
+      Type: A
+      AliasTarget:
+        DNSName: !Ref DomainName
+        HostedZoneId: !Ref WebsiteHostedZone
+        EvaluateTargetHealth: true
+
+  ## To expedite validation:
+  ## After submitting stack, you must open the pending certificate and click "Create records in Route 53"
+  WebsiteHttpsCertificate:
+    Type: AWS::CertificateManager::Certificate
+    DependsOn:
+      - WebsiteHostedZone
+    Properties:
+      DomainName: !Sub ${DomainName}
+      SubjectAlternativeNames:
+        - !Sub "*.${DomainName}"
+      ValidationMethod: DNS
+      DomainValidationOptions:
+        - DomainName: !Sub www.${DomainName}
+          HostedZoneId: !Ref WebsiteHostedZone
+      CertificateTransparencyLoggingPreference: ENABLED
+      Tags:
+        - Key: Company
+          Value: !Sub "${Company}"
+        - Key: Project
+          Value: !Sub "${Project}"
+        - Key: Environment
+          Value: !Sub "${Environment}"
+        - Key: StackName
+          Value: !Ref AWS::StackName
+
+  WebsiteListenerHttps:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    DependsOn:
+      - WebsiteHttpsCertificate
+    Properties:
+      DefaultActions:
+        - Order: 1
+          Type: forward
+          TargetGroupArn:
+              Fn::ImportValue:
+                !Sub ${Environment}-${Company}-${Project}-http-target-group
+      LoadBalancerArn:
+          Fn::ImportValue:
+            !Sub ${Environment}-${Company}-${Project}-load-balancer
+      Port: 443
+      Protocol: HTTPS
+      SslPolicy: ELBSecurityPolicy-TLS13-1-2-2021-06
+      Certificates:
+        - CertificateArn: !Ref WebsiteHttpsCertificate

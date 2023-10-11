@@ -1,0 +1,148 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "Create the shared MariaDB DB and its components"
+
+Parameters:
+  CompanyName:
+    Type: String
+    Default: "My full company name"
+  Company:
+    Type: String
+    Default: "comp"
+  Project:
+    Type: String
+    Default: "laravel-template"
+  Environment:
+    Type: String
+    Default: "p"
+  DbName:
+    Type: String
+    Default: "dbname"
+  PasswordCharactersToExclude:
+    Type: String
+    Description: "Specific characters unsupported by CloudFormation to exclude from generated passwords"
+    Default: '"@/\'
+  DBEngine:
+    Type: String
+    Default: "mariadb"
+  DBEngineVersion:
+    Type: String
+    Default: "10.11.5"
+  DBInstanceClass:
+    Type: String
+    Default: "db.t3.micro"
+
+Resources:
+
+  ProdDbSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: "All common subnets in us-east-2 (prod)"
+      DBSubnetGroupName: !Sub "${Environment}-${Company}-db-subnet-group"
+      SubnetIds:
+      - Fn::ImportValue: !Sub ${Company}-common-subnet-a
+      - Fn::ImportValue: !Sub ${Company}-common-subnet-b
+      - Fn::ImportValue: !Sub ${Company}-common-subnet-c
+      Tags:
+        - Key: Company
+          Value: !Sub "${Company}"
+        - Key: Project
+          Value: !Sub "${Project}"
+        - Key: Environment
+          Value: !Sub "${Environment}"
+        - Key: StackName
+          Value: !Ref AWS::StackName
+
+  ProdDbRootUserSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Description: "Prod secret for root user of DB cluster"
+      Name: !Sub "${Environment}-${Company}-db-root-secret"
+      GenerateSecretString:
+        SecretStringTemplate: !Sub '{"username":"ayankovic"}'
+        GenerateStringKey: password
+        PasswordLength: 25
+        ExcludeCharacters: !Ref PasswordCharactersToExclude
+      Tags:
+        - Key: Company
+          Value: !Sub "${Company}"
+        - Key: Project
+          Value: !Sub "${Project}"
+        - Key: Environment
+          Value: !Sub "${Environment}"
+        - Key: StackName
+          Value: !Ref AWS::StackName
+
+  ProdDbSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: "Prod security group for DB cluster"
+      GroupName: !Sub "${Environment}-${Company}-db-security-group"
+      VpcId:
+          Fn::ImportValue:
+            !Sub ${Company}-common-vpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          CidrIp: 172.0.0.0/8
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 0
+          ToPort: 65535
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Company
+          Value: !Sub "${Company}"
+        - Key: Project
+          Value: !Sub "${Project}"
+        - Key: Environment
+          Value: !Sub "${Environment}"
+        - Key: StackName
+          Value: !Ref AWS::StackName
+
+  ProdDbInstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBInstanceIdentifier: !Sub "${Environment}-${Company}-db"
+      DBName: !Sub "${DbName}"
+      VPCSecurityGroups:
+        - !Ref ProdDbSecurityGroup
+      DBSubnetGroupName: !Ref ProdDbSubnetGroup
+      MultiAZ: false
+      PubliclyAccessible: true
+      Port: 3306
+      EnableIAMDatabaseAuthentication: false
+      MasterUsername: !Sub '{{resolve:secretsmanager:${ProdDbRootUserSecret}:SecretString:username}}'
+      MasterUserPassword: !Sub '{{resolve:secretsmanager:${ProdDbRootUserSecret}:SecretString:password}}'
+      Engine: !Ref DBEngine
+      EngineVersion: !Ref DBEngineVersion
+      DBInstanceClass: !Ref DBInstanceClass
+      LicenseModel: general-public-license
+      StorageType: gp2
+      AllocatedStorage: 20
+      StorageEncrypted: false
+      AllowMajorVersionUpgrade: false
+      AutoMinorVersionUpgrade: true
+      PreferredBackupWindow: 04:30-05:00
+      PreferredMaintenanceWindow: Sun:06:00-Sun:08:00
+      BackupRetentionPeriod: 15
+      Tags:
+        - Key: Company
+          Value: !Sub "${Company}"
+        - Key: Project
+          Value: !Sub "${Project}"
+        - Key: Environment
+          Value: !Sub "${Environment}"
+        - Key: StackName
+          Value: !Ref AWS::StackName
+
+Outputs:
+  ProdDbRootUserSecret:
+    Description: Prod DB root user secret
+    Value: !Ref ProdDbRootUserSecret
+    Export:
+      Name: !Sub "${Environment}-${Company}-db-root-secret"

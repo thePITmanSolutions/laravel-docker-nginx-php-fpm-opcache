@@ -1,0 +1,60 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "Create ECR resources for website"
+
+Parameters:
+  CompanyName:
+    Type: String
+    Default: "My full company name"
+  Company:
+    Type: String
+    Default: "comp"
+  Project:
+    Type: String
+    Default: "laravel-template"
+  Environment:
+    Type: String
+    Default: "p"
+
+Resources:
+
+  WebsiteEcrRepository:
+    Type: AWS::ECR::Repository
+    Properties: 
+      RepositoryName: !Sub ${Environment}-${Company}-${Project}
+      RepositoryPolicyText:
+        Version: "2012-10-17"
+        Statement:
+          -
+            Sid: AllowPushPull
+            Effect: Allow
+            Principal:
+              AWS:
+                - !Sub
+                  - "arn:aws:iam::${AWS::AccountId}:user/${UserName}"
+                  - UserName:
+                      Fn::ImportValue:
+                        !Sub ${Environment}-${Company}-primary-power-user-username
+            Action:
+              - "ecr:GetDownloadUrlForLayer"
+              - "ecr:BatchGetImage"
+              - "ecr:BatchCheckLayerAvailability"
+              - "ecr:PutImage"
+              - "ecr:InitiateLayerUpload"
+              - "ecr:UploadLayerPart"
+              - "ecr:CompleteLayerUpload"
+      Tags:
+        - Key: Company
+          Value: !Sub "${Company}"
+        - Key: Project
+          Value: !Sub "${Project}"
+        - Key: Environment
+          Value: !Sub "${Environment}"
+        - Key: StackName
+          Value: !Ref AWS::StackName
+
+Outputs:
+  WebsiteEcrRepository:
+    Description: ECR Repository image name
+    Value: !Ref WebsiteEcrRepository
+    Export:
+      Name: !Sub ${Environment}-${Company}-${Project}-ecr-image-name

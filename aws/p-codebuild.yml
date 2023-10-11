@@ -1,0 +1,177 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "Create CodeBuild resources for website"
+
+Parameters:
+  CompanyName:
+    Type: String
+    Default: "My full company name"
+  Company:
+    Type: String
+    Default: "comp"
+  Project:
+    Type: String
+    Default: "laravel-template"
+  Environment:
+    Type: String
+    Default: "p"
+  GitHubSourceIdentifier:
+    Type: String
+    Default: "ACCOUNTNAME_GITHUB"
+  WebsiteSourceLocation:
+    Type: String
+    Default: "https://github.com/AccountName/repository.git"
+
+Resources:
+
+  WebsiteCodeBuildServiceRole:
+    Type: AWS::IAM::Role
+    Properties: 
+      RoleName: !Sub ${Environment}-${Company}-${Project}-codebuild-service-role
+      Description: "Service role for CodeBuild"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: codebuild.amazonaws.com
+          Action: sts:AssumeRole
+      Path: /
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryPowerUser
+      Policies:
+        - PolicyName: !Sub ${Environment}-${Company}-${Project}-codebuild-policy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+            - Effect: Allow
+              Resource:
+              - !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/codebuild/*
+              Action:
+              - logs:CreateLogGroup
+              - logs:CreateLogStream
+              - logs:PutLogEvents
+            - Effect: Allow
+              Action:
+              - s3:PutObject
+              - s3:GetObject
+              - s3:GetObjectVersion
+              - s3:GetBucketAcl
+              - s3:GetBucketLocation
+              Resource:
+              - "*"
+            - Effect: Allow
+              Action:
+              - codebuild:CreateReportGroup
+              - codebuild:CreateReport
+              - codebuild:UpdateReport
+              - codebuild:BatchPutTestCases
+              - codebuild:BatchPutCodeCoverages
+              Resource:
+              - "*"
+        - PolicyName: !Sub ${Environment}-${Company}-${Project}-codebuild-ecs-service-policy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+            - Effect: Allow
+              Resource:
+              - !Sub arn:aws:ecs:${AWS::Region}:${AWS::AccountId}:service/*
+              Action:
+              - application-autoscaling:Describe*
+              - application-autoscaling:PutScalingPolicy
+              - application-autoscaling:DeleteScalingPolicy
+              - application-autoscaling:RegisterScalableTarget
+              - cloudwatch:DescribeAlarms
+              - cloudwatch:PutMetricAlarm
+              - ecs:List*
+              - ecs:Describe*
+              - ecs:UpdateService
+              - iam:GetPolicy
+              - iam:GetPolicyVersion
+              - iam:GetRole
+              - iam:ListAttachedRolePolicies
+              - iam:ListRoles
+              - iam:ListGroups
+              - iam:ListUsers
+      Tags:
+        - Key: Company
+          Value: !Sub "${Company}"
+        - Key: Project
+          Value: !Sub "${Project}"
+        - Key: Environment
+          Value: !Sub "${Environment}"
+        - Key: StackName
+          Value: !Ref AWS::StackName
+
+  ## Must manually configure GitHub authentication in AWS console prior to executing stack
+  ## Simulate manual creation of CodeBuild project --> Authenticate GitHub --> Cancel creation
+  WebsiteCodeBuildProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Sub ${Environment}-${Company}-${Project}
+      Description: "Automatically triggers build of repository upon push to main branch"
+      Visibility: PRIVATE
+      Artifacts:
+        Type: no_artifacts
+      Environment:
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/standard:7.0
+        Type: LINUX_CONTAINER
+        ImagePullCredentialsType: CODEBUILD
+        PrivilegedMode: true
+        EnvironmentVariables:
+          - Name: REPOSITORY
+            Type: PLAINTEXT
+            Value: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com
+          - Name: IMAGE
+            Type: PLAINTEXT
+            Value:
+                Fn::ImportValue:
+                  !Sub ${Environment}-${Company}-${Project}-ecr-image-name
+          - Name: IMAGE_TAG
+            Type: PLAINTEXT
+            Value: latest
+          - Name: REGION
+            Type: PLAINTEXT
+            Value: !Sub ${AWS::Region}
+          - Name: CLUSTER
+            Type: PLAINTEXT
+            Value:
+                Fn::ImportValue:
+                  !Sub ${Environment}-${Company}-${Project}-ecs-cluster-name
+          - Name: SERVICE
+            Type: PLAINTEXT
+            Value:
+                Fn::ImportValue:
+                  !Sub ${Environment}-${Company}-${Project}-ecs-service-name
+      Source:
+        SourceIdentifier: !Ref GitHubSourceIdentifier
+        Type: GITHUB
+        Location: !Ref WebsiteSourceLocation
+        GitCloneDepth: 1
+        Auth:
+          Type: OAUTH
+      SourceVersion: main
+      Triggers:
+        BuildType: BUILD
+        Webhook: true
+        FilterGroups:
+          - - Type: EVENT
+              Pattern: PUSH
+              ExcludeMatchedPattern: false
+      ServiceRole: !GetAtt WebsiteCodeBuildServiceRole.Arn
+      BadgeEnabled: false
+      ConcurrentBuildLimit: 1
+      LogsConfig:
+        CloudWatchLogs: 
+          Status: ENABLED
+      QueuedTimeoutInMinutes: 240
+      TimeoutInMinutes: 60
+      Tags:
+        - Key: Company
+          Value: !Sub "${Company}"
+        - Key: Project
+          Value: !Sub "${Project}"
+        - Key: Environment
+          Value: !Sub "${Environment}"
+        - Key: StackName
+          Value: !Ref AWS::StackName
