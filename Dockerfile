@@ -1,5 +1,5 @@
 # Used for prod build.
-FROM 380770931055.dkr.ecr.us-east-2.amazonaws.com/p-tpms-php82nginx-base-image:latest as php
+FROM php:8.2-fpm as php
 
 # Copy configuration files.
 COPY ./docker/php/php.ini /usr/local/etc/php/php.ini
