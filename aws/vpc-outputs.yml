@@ -1,13 +1,13 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: "Create outputs for default VPC and Subnets for thePITman Solutions, LLC"
+Description: "Create outputs for default VPC and Subnets"
 
 Parameters:
   CompanyName:
     Type: String
-    Default: "thePITman Solutions LLC"
+    Default: "My full company name"
   Company:
     Type: String
-    Default: "tpms"
+    Default: "comp"
 
 Resources:
   NullResource:
@@ -16,21 +16,21 @@ Resources:
 Outputs:
   MyVPC:
     Description: Default VPC ID
-    Value: "vpc-01b445c87e0974985"
+    Value: "<Your Default VPC ID>"
     Export:
       Name: !Sub "${Company}-common-vpc"
   MySubnetA:
     Description: Default Subnet A ID
-    Value: "subnet-00fb554a9e87fa1f5"
+    Value: "<Your Default Subnet A ID>"
     Export:
       Name: !Sub "${Company}-common-subnet-a"
   MySubnetB:
     Description: Default Subnet B ID
-    Value: "subnet-0aac249caf69af7a7"
+    Value: "<Your Default Subnet B ID>"
     Export:
       Name: !Sub "${Company}-common-subnet-b"
   MySubnetC:
     Description: Default Subnet C ID
-    Value: "subnet-0e5d3589b1839fca3"
+    Value: "<Your Default Subnet C ID>"
     Export:
       Name: !Sub "${Company}-common-subnet-c"
